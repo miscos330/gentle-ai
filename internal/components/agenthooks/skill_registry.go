@@ -27,9 +27,22 @@ func claudeSkillRegistryCommand(platform string) string {
 	return claudeLegacySkillRegistryCommand
 }
 
-// pruneClaudeLegacySkillRegistryHooks removes only the retired POSIX command
-// under UserPromptSubmit, preserving unrelated hooks and their outer entries.
-func pruneClaudeLegacySkillRegistryHooks(entries []any) ([]any, bool) {
+const codexLegacySkillRegistryCommand = `gentle-ai skill-registry refresh --quiet --no-gitignore --cwd "$PWD" || true`
+
+// codexSkillRegistryCommand is the SessionStart command for Codex. On Windows
+// Codex runs hook commands through the session's shell, Windows PowerShell 5.1
+// by default, which cannot parse `||`, so it gets the same PowerShell form as
+// Claude Code's.
+func codexSkillRegistryCommand(platform string) string {
+	if platform == "windows" {
+		return `powershell -NoProfile -Command 'gentle-ai skill-registry refresh --quiet --no-gitignore --cwd "$PWD"; exit 0'`
+	}
+	return codexLegacySkillRegistryCommand
+}
+
+// pruneLegacySkillRegistryHooks removes only the retired POSIX command legacy
+// from an event's entries, preserving unrelated hooks and their outer entries.
+func pruneLegacySkillRegistryHooks(entries []any, legacy string) ([]any, bool) {
 	var keptEntries []any
 	changed := false
 	for _, entry := range entries {
@@ -46,7 +59,7 @@ func pruneClaudeLegacySkillRegistryHooks(entries []any) ([]any, bool) {
 		var keptHooks []any
 		for _, hook := range hooks {
 			h, ok := hook.(map[string]any)
-			if ok && h["command"] == claudeLegacySkillRegistryCommand {
+			if ok && h["command"] == legacy {
 				changed = true
 				continue
 			}
@@ -75,7 +88,7 @@ func InstallSkillRegistry(homeDir string, adapter agents.Adapter) (Result, error
 }
 
 func installSkillRegistry(homeDir string, adapter agents.Adapter, platform string) (Result, error) {
-	var path, event, command string
+	var path, event, command, legacy string
 	switch adapter.Agent() {
 	case model.AgentCodex:
 		if err := system.ValidateCodexHome(homeDir); err != nil {
@@ -83,11 +96,13 @@ func installSkillRegistry(homeDir string, adapter agents.Adapter, platform strin
 		}
 		path = filepath.Join(adapter.GlobalConfigDir(homeDir), "hooks.json")
 		event = "SessionStart"
-		command = `gentle-ai skill-registry refresh --quiet --no-gitignore --cwd "$PWD" || true`
+		command = codexSkillRegistryCommand(platform)
+		legacy = codexLegacySkillRegistryCommand
 	case model.AgentClaudeCode:
 		path = adapter.SettingsPath(homeDir)
 		event = "UserPromptSubmit"
 		command = claudeSkillRegistryCommand(platform)
+		legacy = claudeLegacySkillRegistryCommand
 	default:
 		return Result{}, nil
 	}
@@ -123,8 +138,8 @@ func installSkillRegistry(homeDir string, adapter agents.Adapter, platform strin
 		return Result{}, fmt.Errorf("hook settings %q has unsupported hooks.%s shape: want array", path, event)
 	}
 	pruned := false
-	if adapter.Agent() == model.AgentClaudeCode && platform == "windows" {
-		entries, pruned = pruneClaudeLegacySkillRegistryHooks(entries)
+	if platform == "windows" {
+		entries, pruned = pruneLegacySkillRegistryHooks(entries, legacy)
 		if pruned {
 			if len(entries) == 0 {
 				delete(hooks, event)

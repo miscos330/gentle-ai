@@ -118,6 +118,9 @@ func TestSkillRegistryHooksWithoutSDD(t *testing.T) {
 			if tc.agent == model.AgentClaudeCode && runtime.GOOS == "windows" {
 				command = `powershell -NoProfile -Command 'if (Test-Path env:CLAUDE_PROJECT_DIR) { $dir = $env:CLAUDE_PROJECT_DIR } else { $dir = $PWD }; gentle-ai skill-registry refresh --quiet --no-gitignore --cwd "$dir"; exit 0'`
 			}
+			if tc.agent == model.AgentCodex && runtime.GOOS == "windows" {
+				command = `powershell -NoProfile -Command 'gentle-ai skill-registry refresh --quiet --no-gitignore --cwd "$PWD"; exit 0'`
+			}
 			event := "SessionStart"
 			if tc.agent == model.AgentClaudeCode {
 				event = "UserPromptSubmit"
